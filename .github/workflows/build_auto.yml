@@ -72,7 +72,7 @@ jobs:
       # 编译APK（增加权限+强制刷新依赖）
       - name: 编译APK
         run: |
-          cd app/android
+          cd app
           chmod +x gradlew
           # 强制刷新依赖，解决编译失败
           ./gradlew clean
