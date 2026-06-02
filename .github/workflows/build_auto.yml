@@ -1,0 +1,66 @@
+name: 自动编译魔改OpenList-Mobile(arm64)
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 拉取 OpenList-Mobile 壳工程
+        uses: actions/checkout@v4
+        with:
+          repository: AidienQ/OpenList-Mobile
+          path: app
+
+      - name: 拉取 魔改OpenList源码
+        uses: actions/checkout@v4
+        with:
+          repository: xmm2022/openlist-guangyapan-src
+          path: openlist
+
+      - name: 安装 Go 环境
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+
+      # ====================
+      # 自动编译 魔改安卓arm64 二进制
+      # ====================
+      - name: 编译安卓arm64
+        run: |
+          cd openlist
+          CGO_ENABLED=0 GOOS=android GOARCH=arm64 go build -o openlist ./main.go
+          file openlist
+
+      # ====================
+      # 自动创建 assets 目录 + 放入二进制
+      # ====================
+      - name: 集成到APP
+        run: |
+          mkdir -p app/android/app/src/main/assets
+          cp openlist/openlist app/android/app/src/main/assets/openlist
+          chmod +x app/android/app/src/main/assets/openlist
+
+      # ====================
+      # 自动编译 APK
+      # ====================
+      - name: 设置JDK17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: 编译APK
+        run: |
+          cd app
+          chmod +x gradlew
+          ./gradlew assembleRelease
+
+      # ====================
+      # 输出最终APK
+      # ====================
+      - name: 上传APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpenList_魔改_arm64
+          path: app/android/app/build/outputs/apk/release/*.apk
