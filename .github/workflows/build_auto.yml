@@ -2,6 +2,10 @@ name: 自动编译魔改OpenList-Mobile(arm64)
 on:
   workflow_dispatch:
 
+# 强制使用Node.js 24，消除版本警告
+env:
+  FORCE_JAVASCRIPT_ACTIONS_NODE24: true
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -11,56 +15,74 @@ jobs:
         with:
           repository: AidienQ/OpenList-Mobile
           path: app
+          fetch-depth: 1
 
       - name: 拉取 魔改OpenList源码
         uses: actions/checkout@v4
         with:
           repository: xmm2022/openlist-guangyapan-src
           path: openlist
+          fetch-depth: 1
 
-      - name: 安装 Go 环境
+      - name: 安装 Go 环境（禁用缓存，解决go.sum报错）
         uses: actions/setup-go@v5
         with:
           go-version: '1.21'
+          cache: false # 关键：关闭Go缓存，避免找不到go.sum
 
-      # ====================
-      # 自动编译 魔改安卓arm64 二进制
-      # ====================
+      # 编译魔改安卓arm64二进制（增加依赖安装，适配所有环境）
       - name: 编译安卓arm64
         run: |
           cd openlist
-          CGO_ENABLED=0 GOOS=android GOARCH=arm64 go build -o openlist ./main.go
+          # 安装Go依赖（如果项目有go.mod）
+          go mod tidy || true
+          # 编译（增加瘦身参数，文件更小）
+          CGO_ENABLED=0 GOOS=android GOARCH=arm64 go build -trimpath -ldflags "-s -w" -o openlist ./main.go
+          # 验证文件是否生成
+          if [ ! -f "openlist" ]; then
+            echo "编译失败：未生成openlist二进制文件"
+            exit 1
+          fi
           file openlist
 
-      # ====================
-      # 自动创建 assets 目录 + 放入二进制
-      # ====================
+      # 集成到APP（确保目录存在+权限）
       - name: 集成到APP
         run: |
           mkdir -p app/android/app/src/main/assets
           cp openlist/openlist app/android/app/src/main/assets/openlist
           chmod +x app/android/app/src/main/assets/openlist
+          # 验证文件是否复制成功
+          ls -lh app/android/app/src/main/assets/
 
-      # ====================
-      # 自动编译 APK
-      # ====================
+      # 安装安卓编译依赖（核心修复Gradle编译失败）
+      - name: 安装Ubuntu依赖
+        run: |
+          sudo apt update
+          sudo apt install -y unzip zip lib32stdc++6 lib32z1
+
+      # 设置JDK17（指定缓存路径，避免冲突）
       - name: 设置JDK17
         uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: 'temurin'
+          cache: gradle
+          cache-dependency-path: app/android/gradle/wrapper/gradle-wrapper.properties
 
+      # 编译APK（增加权限+强制刷新依赖）
       - name: 编译APK
         run: |
-          cd app
+          cd app/android
           chmod +x gradlew
-          ./gradlew assembleRelease
+          # 强制刷新依赖，解决编译失败
+          ./gradlew clean
+          ./gradlew assembleRelease --stacktrace
 
-      # ====================
-      # 输出最终APK
-      # ====================
+      # 上传最终APK（确保找到文件）
       - name: 上传APK
         uses: actions/upload-artifact@v4
         with:
           name: OpenList_魔改_arm64
-          path: app/android/app/build/outputs/apk/release/*.apk
+          path: |
+            app/android/app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
